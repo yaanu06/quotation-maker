@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<meta name="description" content="QuoteCraft — create professional quotations, invoices, receipts and estimates from your phone. Offline-friendly, PDF export, WhatsApp share.">
+<title>QuoteCraft — Quotation & Invoice Maker</title>
+<link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<!-- ===== APP SHELL ===== -->
+<div id="app">
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      <img src="assets/logo.svg" alt="QuoteCraft logo" class="brand-logo">
+      <span class="brand-name">Quote<strong>Craft</strong></span>
+    </div>
+    <button class="icon-btn" id="btn-new-doc" aria-label="New document">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+  </header>
+
+  <!-- Views -->
+  <main id="views">
+
+    <!-- ===== DASHBOARD ===== -->
+    <section class="view view-active" id="view-dashboard">
+      <div class="stats-row" id="stats-row"></div>
+
+      <div class="seg" id="doc-filter" role="tablist">
+        <button class="seg-btn seg-active" data-filter="all">All</button>
+        <button class="seg-btn" data-filter="quote">Quotes</button>
+        <button class="seg-btn" data-filter="invoice">Invoices</button>
+        <button class="seg-btn" data-filter="receipt">Receipts</button>
+      </div>
+
+      <div class="search-wrap">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="search" id="doc-search" placeholder="Search client, number, item…" autocomplete="off">
+      </div>
+
+      <div id="doc-list" class="doc-list"></div>
+      <div id="doc-empty" class="empty-state" hidden>
+        <div class="empty-icon">📄</div>
+        <p>No documents yet.</p>
+        <button class="btn btn-primary" id="empty-create">Create your first quotation</button>
+      </div>
+    </section>
+
+    <!-- ===== EDITOR ===== -->
+    <section class="view" id="view-editor">
+      <form id="doc-form" autocomplete="off">
+        <div class="editor-head">
+          <button type="button" class="icon-btn" id="editor-back" aria-label="Back">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
+          <div class="seg seg-small" id="doc-type-seg">
+            <button type="button" class="seg-btn seg-active" data-type="quote">Quote</button>
+            <button type="button" class="seg-btn" data-type="invoice">Invoice</button>
+            <button type="button" class="seg-btn" data-type="receipt">Receipt</button>
+          </div>
+          <span class="doc-number" id="doc-number">Q-0001</span>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Client</div>
+          <div class="client-pick">
+            <select id="f-client" class="input"><option value="">— Select client —</option></select>
+            <button type="button" class="btn btn-ghost" id="quick-add-client">+ New</button>
+          </div>
+          <div id="client-snapshot" class="client-snapshot"></div>
+        </div>
+
+        <div class="card">
+          <div class="grid-2">
+            <label class="field"><span>Issue date</span><input type="date" class="input" id="f-issue" required></label>
+            <label class="field"><span id="due-label">Valid until</span><input type="date" class="input" id="f-due"></label>
+          </div>
+          <div class="grid-2">
+            <label class="field"><span>Currency</span><select class="input" id="f-currency"></select></label>
+            <label class="field"><span>Payment status</span>
+              <select class="input" id="f-status">
+                <option value="draft">Draft</option>
+                <option value="sent">Sent</option>
+                <option value="unpaid">Unpaid</option>
+                <option value="paid">Paid</option>
+                <option value="accepted">Accepted</option>
+                <option value="declined">Declined</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title row-between">Items <button type="button" class="btn btn-ghost btn-sm" id="add-item-row">+ Add item</button></div>
+          <div class="items-head" aria-hidden="true"><span>Description</span><span>Qty</span><span>Rate</span><span>Tax%</span><span></span></div>
+          <div id="items-rows"></div>
+          <datalist id="saved-items"></datalist>
+        </div>
+
+        <div class="card totals-card">
+          <div class="totals-row"><span>Subtotal</span><span id="t-subtotal">0.00</span></div>
+          <div class="totals-row"><span>Discount</span><span class="inline-input"><input type="number" min="0" step="0.01" class="input input-xs" id="f-discount" value="0"> %</span></div>
+          <div class="totals-row"><span>Tax</span><span id="t-tax">0.00</span></div>
+          <div class="totals-row totals-grand"><span>Total</span><span id="t-total">0.00</span></div>
+        </div>
+
+        <div class="card">
+          <label class="field"><span>Notes (visible to client)</span><textarea class="input" id="f-notes" rows="2" placeholder="Thank you for your business…"></textarea></label>
+          <label class="field"><span>Terms & conditions</span><textarea class="input" id="f-terms" rows="2" placeholder="Payment due within 14 days…"></textarea></label>
+          <label class="check-row"><input type="checkbox" id="f-signature"> Include my signature on the document</label>
+        </div>
+
+        <div class="editor-actions">
+          <button type="button" class="btn btn-ghost danger" id="delete-doc">Delete</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- ===== CLIENTS ===== -->
+    <section class="view" id="view-clients">
+      <div class="view-head"><h2>Clients</h2><button class="btn btn-primary btn-sm" id="add-client">+ Add</button></div>
+      <div class="search-wrap"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input type="search" id="client-search" placeholder="Search clients…"></div>
+      <div id="client-list" class="doc-list"></div>
+    </section>
+
+    <!-- ===== ITEMS ===== -->
+    <section class="view" id="view-items">
+      <div class="view-head"><h2>Products & Services</h2><button class="btn btn-primary btn-sm" id="add-item">+ Add</button></div>
+      <div class="search-wrap"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input type="search" id="item-search" placeholder="Search items…"></div>
+      <div id="item-list" class="doc-list"></div>
+    </section>
+
+    <!-- ===== SETTINGS ===== -->
+    <section class="view" id="view-settings">
+      <div class="view-head"><h2>Business Profile</h2></div>
+      <form id="settings-form" class="card">
+        <div class="logo-uploader">
+          <img id="logo-preview" alt="Company logo" hidden>
+          <div class="logo-placeholder" id="logo-placeholder">LOGO</div>
+          <label class="btn btn-ghost btn-sm">Upload logo<input type="file" id="f-logo" accept="image/*" hidden></label>
+          <button type="button" class="btn btn-ghost btn-sm" id="clear-logo">Remove</button>
+        </div>
+        <label class="field"><span>Business name *</span><input class="input" id="s-name" required placeholder="Acme Traders"></label>
+        <div class="grid-2">
+          <label class="field"><span>Email</span><input class="input" id="s-email" type="email" placeholder="you@business.com"></label>
+          <label class="field"><span>Phone</span><input class="input" id="s-phone" type="tel" placeholder="+91 98765 43210"></label>
+        </div>
+        <label class="field"><span>Address</span><textarea class="input" id="s-address" rows="2" placeholder="Street, City, PIN"></textarea></label>
+        <div class="grid-2">
+          <label class="field"><span>GST / Tax ID</span><input class="input" id="s-taxid" placeholder="29ABCDE1234F1Z5"></label>
+          <label class="field"><span>Website</span><input class="input" id="s-website" placeholder="www.acme.com"></label>
+        </div>
+        <label class="field"><span>Signature image</span><input class="input" type="file" id="f-signature-img" accept="image/*"></label>
+        <img id="signature-preview" class="signature-preview" alt="Signature" hidden>
+        <div class="grid-2">
+          <label class="field"><span>Default currency</span><select class="input" id="s-currency"></select></label>
+          <label class="field"><span>Invoice prefix</span><input class="input" id="s-invprefix" placeholder="INV"></label>
+        </div>
+        <div class="grid-2">
+          <label class="field"><span>Quote prefix</span><input class="input" id="s-qprefix" placeholder="QUO"></label>
+          <label class="field"><span>Receipt prefix</span><input class="input" id="s-rprefix" placeholder="RCT"></label>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Save business profile</button>
+      </form>
+      <div class="card">
+        <div class="card-title">Data</div>
+        <p class="muted">All data is stored on this device (localStorage). Google Sheets sync is planned.</p>
+        <div class="btn-row">
+          <button class="btn btn-ghost btn-sm" id="export-data">Export backup (JSON)</button>
+          <label class="btn btn-ghost btn-sm">Import backup<input type="file" id="import-data" accept="application/json" hidden></label>
+        </div>
+        <button class="btn btn-ghost btn-sm danger" id="reset-data">Reset all data</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Bottom nav (mobile) -->
+  <nav class="bottom-nav" aria-label="Main navigation">
+    <button class="nav-btn nav-active" data-view="view-dashboard"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg><span>Home</span></button>
+    <button class="nav-btn" data-view="view-clients"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg><span>Clients</span></button>
+    <button class="nav-btn" data-view="view-items"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg><span>Items</span></button>
+    <button class="nav-btn" data-view="view-settings"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.35a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.65 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h0a1.7 1.7 0 0 0 1.04-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v0a1.7 1.7 0 0 0 1.56 1.04H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/></svg><span>Profile</span></button>
+  </nav>
+</div>
+
+<!-- ===== QUICK ADD CLIENT MODAL ===== -->
+<dialog id="client-modal" class="modal">
+  <form method="dialog" id="client-modal-form">
+    <h3>Add client</h3>
+    <label class="field"><span>Name *</span><input class="input" id="cm-name" required></label>
+    <div class="grid-2"><label class="field"><span>Phone</span><input class="input" id="cm-phone" type="tel"></label><label class="field"><span>Email</span><input class="input" id="cm-email" type="email"></label></div>
+    <label class="field"><span>Address</span><textarea class="input" id="cm-address" rows="2"></textarea></label>
+    <label class="field"><span>GST / Tax ID</span><input class="input" id="cm-taxid"></label>
+    <div class="btn-row end"><button type="button" class="btn btn-ghost" id="cm-cancel">Cancel</button><button type="submit" class="btn btn-primary">Save client</button></div>
+  </form>
+</dialog>
+
+<!-- ===== QUICK ADD ITEM MODAL ===== -->
+<dialog id="item-modal" class="modal">
+  <form method="dialog" id="item-modal-form">
+    <h3>Add item / service</h3>
+    <label class="field"><span>Name *</span><input class="input" id="im-name" required placeholder="e.g. Cement bag 50kg"></label>
+    <label class="field"><span>Description</span><input class="input" id="im-desc"></label>
+    <div class="grid-2"><label class="field"><span>Rate *</span><input class="input" id="im-rate" type="number" min="0" step="0.01" required></label><label class="field"><span>Tax %</span><input class="input" id="im-tax" type="number" min="0" step="0.01" value="0"></label></div>
+    <div class="btn-row end"><button type="button" class="btn btn-ghost" id="im-cancel">Cancel</button><button type="submit" class="btn btn-primary">Save item</button></div>
+  </form>
+</dialog>
+
+<!-- ===== DOCUMENT ACTIONS SHEET ===== -->
+<dialog id="doc-actions" class="modal sheet">
+  <div class="sheet-handle"></div>
+  <h3 id="da-title">Document</h3>
+  <div class="sheet-actions">
+    <button class="sheet-action" id="da-open"><span class="sheet-emoji">✏️</span>Open / Edit</button>
+    <button class="sheet-action" id="da-pdf"><span class="sheet-emoji">📄</span>Download / Print PDF</button>
+    <button class="sheet-action" id="da-share"><span class="sheet-emoji">📤</span>Share (WhatsApp / Email)</button>
+    <button class="sheet-action" id="da-convert"><span class="sheet-emoji">🔁</span>Convert to Invoice</button>
+    <button class="sheet-action" id="da-paid"><span class="sheet-emoji">✅</span>Mark as Paid</button>
+    <button class="sheet-action danger" id="da-delete"><span class="sheet-emoji">🗑️</span>Delete</button>
+  </div>
+  <button class="btn btn-ghost btn-block" id="da-close">Close</button>
+</dialog>
+
+<!-- ===== PRINT AREA ===== -->
+<div id="print-area" aria-hidden="true"></div>
+
+<div id="toast" class="toast" role="status"></div>
+
+<script src="js/store.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

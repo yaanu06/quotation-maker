@@ -1,0 +1,12 @@
+{
+  "name": "QuoteCraft — Quotation & Invoice Maker",
+  "short_name": "QuoteCraft",
+  "description": "Create quotations, invoices, receipts and estimates on your phone. Works offline.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0b1220",
+  "theme_color": "#0f766e",
+  "icons": [
+    { "src": "assets/logo.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
