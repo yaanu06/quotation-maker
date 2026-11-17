@@ -213,10 +213,11 @@ textarea.input { resize: vertical; min-height: 56px; }
 
 /* ===== DESKTOP ===== */
 @media (min-width: 900px) {
-  .bottom-nav { top: 0; left: auto; right: auto; bottom: auto; position: fixed; flex-direction: column; width: 76px; height: 100vh; border-top: none; border-right: 1px solid var(--line); padding-top: 76px; gap: 4px; }
+  body { padding-left: 76px; }
+  .bottom-nav { top: 0; left: 0; right: auto; bottom: 0; position: fixed; flex-direction: column; width: 76px; height: 100vh; border-top: none; border-right: 1px solid var(--line); padding-top: 12px; gap: 4px; }
   .nav-btn { border-radius: 14px; margin: 0 8px; padding: 12px 0; }
   .nav-btn.nav-active { background: var(--teal-soft); }
-  #views { margin-left: 110px; }
+  #views { margin: 0 auto; }
   .stats-row { grid-template-columns: repeat(3, 240px); }
 }
 @media (max-width: 480px) {
