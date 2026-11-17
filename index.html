@@ -8,7 +8,7 @@
 <title>QuoteCraft — Quotation & Invoice Maker</title>
 <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="stylesheet" href="css/styles.css?v=2">
+<link rel="stylesheet" href="css/styles.css?v=3">
 </head>
 <body>
 
@@ -33,12 +33,9 @@
     <section class="view view-active" id="view-dashboard">
       <div class="stats-row" id="stats-row"></div>
 
-      <div class="seg" id="doc-filter" role="tablist">
-        <button class="seg-btn seg-active" data-filter="all">All</button>
-        <button class="seg-btn" data-filter="quote">Quotes</button>
-        <button class="seg-btn" data-filter="invoice">Invoices</button>
-        <button class="seg-btn" data-filter="receipt">Receipts</button>
-      </div>
+      <div id="reminders" class="reminders"></div>
+
+      <div class="seg seg-wrap" id="doc-filter" role="tablist"></div>
 
       <div class="search-wrap">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
@@ -60,12 +57,8 @@
           <button type="button" class="icon-btn" id="editor-back" aria-label="Back">
             <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
           </button>
-          <div class="seg seg-small" id="doc-type-seg">
-            <button type="button" class="seg-btn seg-active" data-type="quote">Quote</button>
-            <button type="button" class="seg-btn" data-type="invoice">Invoice</button>
-            <button type="button" class="seg-btn" data-type="receipt">Receipt</button>
-          </div>
-          <span class="doc-number" id="doc-number">Q-0001</span>
+          <select class="input" id="f-doctype" aria-label="Document type"></select>
+          <span class="doc-number" id="doc-number">QUO-0001</span>
         </div>
 
         <div class="card">
@@ -117,6 +110,11 @@
           <label class="check-row"><input type="checkbox" id="f-signature"> Include my signature on the document</label>
         </div>
 
+        <div class="card">
+          <div class="card-title row-between">Photos <label class="btn btn-ghost btn-sm">+ Attach<input type="file" id="f-images" accept="image/*" multiple hidden></label></div>
+          <div id="image-previews" class="image-previews"><p class="muted" id="images-empty">Attach product / site photos (max 6).</p></div>
+        </div>
+
         <div class="editor-actions">
           <button type="button" class="btn btn-ghost danger" id="delete-doc">Delete</button>
           <button type="submit" class="btn btn-primary">Save</button>
@@ -162,11 +160,19 @@
         <img id="signature-preview" class="signature-preview" alt="Signature" hidden>
         <div class="grid-2">
           <label class="field"><span>Default currency</span><select class="input" id="s-currency"></select></label>
-          <label class="field"><span>Invoice prefix</span><input class="input" id="s-invprefix" placeholder="INV"></label>
+          <label class="field"><span>PDF template</span><select class="input" id="s-template"><option value="classic">Classic (teal, serif)</option><option value="modern">Modern (dark band)</option><option value="minimal">Minimal (black &amp; white)</option></select></label>
         </div>
         <div class="grid-2">
+          <label class="field"><span>Invoice prefix</span><input class="input" id="s-invprefix" placeholder="INV"></label>
           <label class="field"><span>Quote prefix</span><input class="input" id="s-qprefix" placeholder="QUO"></label>
+        </div>
+        <div class="grid-2">
           <label class="field"><span>Receipt prefix</span><input class="input" id="s-rprefix" placeholder="RCT"></label>
+          <label class="field"><span>Proforma prefix</span><input class="input" id="s-proprefix" placeholder="PRO"></label>
+        </div>
+        <div class="grid-2">
+          <label class="field"><span>Purchase order prefix</span><input class="input" id="s-poprefix" placeholder="PO"></label>
+          <label class="field"><span>Delivery note prefix</span><input class="input" id="s-dnprefix" placeholder="DN"></label>
         </div>
         <button type="submit" class="btn btn-primary btn-block">Save business profile</button>
       </form>
@@ -223,10 +229,27 @@
     <button class="sheet-action" id="da-pdf"><span class="sheet-emoji">📄</span>Download / Print PDF</button>
     <button class="sheet-action" id="da-share"><span class="sheet-emoji">📤</span>Share (WhatsApp / Email)</button>
     <button class="sheet-action" id="da-convert"><span class="sheet-emoji">🔁</span>Convert to Invoice</button>
+    <button class="sheet-action" id="da-duplicate"><span class="sheet-emoji">📑</span>Duplicate document</button>
+    <button class="sheet-action" id="da-payment"><span class="sheet-emoji">💰</span>Record payment</button>
     <button class="sheet-action" id="da-paid"><span class="sheet-emoji">✅</span>Mark as Paid</button>
     <button class="sheet-action danger" id="da-delete"><span class="sheet-emoji">🗑️</span>Delete</button>
   </div>
   <button class="btn btn-ghost btn-block" id="da-close">Close</button>
+</dialog>
+
+<!-- ===== RECORD PAYMENT MODAL ===== -->
+<dialog id="payment-modal" class="modal">
+  <form method="dialog" id="payment-modal-form">
+    <h3 id="pm-title">Record payment</h3>
+    <div class="pm-balance muted" id="pm-balance"></div>
+    <label class="field"><span>Amount *</span><input class="input" id="pm-amount" type="number" min="0" step="0.01" required></label>
+    <div class="grid-2">
+      <label class="field"><span>Date</span><input class="input" id="pm-date" type="date" required></label>
+      <label class="field"><span>Method</span><select class="input" id="pm-method"><option>Cash</option><option>UPI</option><option>Bank transfer</option><option>Card</option><option>Cheque</option><option>Other</option></select></label>
+    </div>
+    <label class="field"><span>Note</span><input class="input" id="pm-note" placeholder="Optional reference / UTR…"></label>
+    <div class="btn-row end"><button type="button" class="btn btn-ghost" id="pm-cancel">Cancel</button><button type="submit" class="btn btn-primary">Save payment</button></div>
+  </form>
 </dialog>
 
 <!-- ===== PRINT AREA ===== -->
@@ -234,7 +257,7 @@
 
 <div id="toast" class="toast" role="status"></div>
 
-<script src="js/store.js"></script>
-<script src="js/app.js"></script>
+<script src="js/store.js?v=3"></script>
+<script src="js/app.js?v=3"></script>
 </body>
 </html>

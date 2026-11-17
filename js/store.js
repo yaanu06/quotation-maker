@@ -7,8 +7,9 @@ const Store = (() => {
     settings: {
       business: { name: '', email: '', phone: '', address: '', taxId: '', website: '', logo: '', signature: '' },
       currency: 'INR',
-      prefixes: { quote: 'QUO', invoice: 'INV', receipt: 'RCT' },
-      counters: { quote: 1, invoice: 1, receipt: 1 },
+      prefixes: { quote: 'QUO', invoice: 'INV', receipt: 'RCT', proforma: 'PRO', purchase_order: 'PO', delivery_note: 'DN' },
+      counters: { quote: 1, invoice: 1, receipt: 1, proforma: 1, purchase_order: 1, delivery_note: 1 },
+      template: 'classic',
       seeded: false
     },
     clients: [],
@@ -18,12 +19,27 @@ const Store = (() => {
 
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
+  function mergeData(data) {
+    const d = defaultData();
+    const s = data.settings || {};
+    return {
+      settings: {
+        ...d.settings, ...s,
+        business: { ...d.settings.business, ...(s.business || {}) },
+        prefixes: { ...d.settings.prefixes, ...(s.prefixes || {}) },
+        counters: { ...d.settings.counters, ...(s.counters || {}) }
+      },
+      clients: Array.isArray(data.clients) ? data.clients : [],
+      items: Array.isArray(data.items) ? data.items : [],
+      documents: Array.isArray(data.documents) ? data.documents : []
+    };
+  }
+
   function load() {
     try {
       const raw = localStorage.getItem(KEY);
       if (!raw) return seed(defaultData());
-      const data = JSON.parse(raw);
-      return Object.assign(defaultData(), data);
+      return mergeData(JSON.parse(raw));
     } catch {
       return defaultData();
     }
@@ -103,6 +119,28 @@ const Store = (() => {
     deleteDocument(id) { state.documents = state.documents.filter(d => d.id !== id); persist(); },
     setStatus(id, status) { return api.updateDocument(id, { status }); },
 
+    recordPayment(id, payment) {
+      const d = api.getDocument(id);
+      if (!d) return null;
+      const payments = [...(d.payments || []), { id: uid(), ...payment }];
+      api.updateDocument(id, { payments });
+      return api.getDocument(id);
+    },
+
+    removePayment(id, paymentId) {
+      const d = api.getDocument(id);
+      if (!d) return null;
+      api.updateDocument(id, { payments: (d.payments || []).filter(p => p.id !== paymentId) });
+      return api.getDocument(id);
+    },
+
+    duplicateDocument(id) {
+      const d = api.getDocument(id);
+      if (!d) return null;
+      const { id: _id, number: _n, createdAt: _c, status: _s, payments: _p, ...rest } = d;
+      return api.addDocument({ ...rest, items: (d.items || []).map(i => ({ ...i })), images: [...(d.images || [])], status: 'draft', payments: [], issueDate: todayISO(), number: undefined });
+    },
+
     convertQuoteToInvoice(id) {
       const q = api.getDocument(id);
       if (!q) return null;
@@ -127,7 +165,7 @@ const Store = (() => {
 
     exportAll() { return JSON.parse(JSON.stringify(state)); },
     importAll(data) {
-      state = Object.assign(defaultData(), data);
+      state = mergeData(data);
       persist();
     },
     resetAll() { localStorage.removeItem(KEY); state = seed(defaultData()); }

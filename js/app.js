@@ -12,6 +12,15 @@
     ['AUD', 'A$'], ['CAD', 'C$'], ['SGD', 'S$'], ['MYR', 'RM'], ['ZAR', 'R'], ['JPY', '¥']
   ];
 
+  const DOC_TYPES = {
+    quote:          { label: 'Quotation',     plural: 'Quotes',          icon: '📝', dueLabel: 'Valid until', defaultStatus: 'sent'   },
+    invoice:        { label: 'Invoice',       plural: 'Invoices',        icon: '🧾', dueLabel: 'Due date',    defaultStatus: 'unpaid' },
+    receipt:        { label: 'Receipt',       plural: 'Receipts',        icon: '🧾', dueLabel: 'Receipt date',defaultStatus: 'paid'   },
+    proforma:       { label: 'Proforma Invoice', plural: 'Proformas',    icon: '📄', dueLabel: 'Valid until', defaultStatus: 'sent'   },
+    purchase_order: { label: 'Purchase Order', plural: 'POs',             icon: '📦', dueLabel: 'Delivery by', defaultStatus: 'sent'   },
+    delivery_note:  { label: 'Delivery Note',  plural: 'Delivery Notes',  icon: '🚚', dueLabel: 'Delivery date', defaultStatus: 'sent'  }
+  };
+
   const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
   const fmt = (n, currency) => {
     const cur = currency || Store.getSettings().currency || 'INR';
@@ -47,22 +56,63 @@
     return { items, subtotal, discountPct, discount, tax, total };
   }
 
+  const amountPaid = doc => (doc.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const balanceDue = doc => Math.max(0, computeTotals(doc).total - amountPaid(doc));
+
   /* ============ DASHBOARD ============ */
   let currentFilter = 'all';
   let currentSearch = '';
 
+  function isOpenReceivable(d) {
+    return ['invoice', 'proforma'].includes(d.type) && ['sent', 'unpaid', 'partial'].includes(d.status);
+  }
+
   function renderStats() {
     const docs = Store.listDocuments('all');
-    const outstanding = docs.filter(d => d.type === 'invoice' && ['sent', 'unpaid'].includes(d.status))
-      .reduce((s, d) => s + computeTotals(d).total, 0);
+    const outstanding = docs.filter(isOpenReceivable).reduce((s, d) => s + balanceDue(d), 0);
     const month = new Date().toISOString().slice(0, 7);
-    const paidThisMonth = docs.filter(d => d.status === 'paid' && (d.issueDate || '').startsWith(month))
-      .reduce((s, d) => s + computeTotals(d).total, 0);
+    const paidThisMonth = docs.filter(d => (d.payments || []).some(p => (p.date || '').startsWith(month)))
+      .reduce((s, d) => s + (d.payments || []).filter(p => (p.date || '').startsWith(month)).reduce((a, p) => a + (Number(p.amount) || 0), 0), 0);
     const openQuotes = docs.filter(d => d.type === 'quote' && ['draft', 'sent'].includes(d.status)).length;
     $('#stats-row').innerHTML = `
       <div class="stat"><div class="stat-label">Outstanding</div><div class="stat-value amber">${fmt(outstanding)}</div></div>
       <div class="stat"><div class="stat-label">Paid (month)</div><div class="stat-value green">${fmt(paidThisMonth)}</div></div>
       <div class="stat"><div class="stat-label">Open quotes</div><div class="stat-value">${openQuotes}</div></div>`;
+  }
+
+  function daysBetween(iso) {
+    if (!iso) return null;
+    const d = new Date(iso + 'T00:00:00');
+    if (isNaN(d)) return null;
+    return Math.floor((Date.now() - d.getTime()) / 86400000);
+  }
+
+  function renderReminders() {
+    const docs = Store.listDocuments('all');
+    const items = [];
+    docs.forEach(d => {
+      const age = daysBetween(d.dueDate);
+      if (age === null) return;
+      if (isOpenReceivable(d)) {
+        if (age > 0) items.push({ d, kind: 'overdue', days: age });
+        else if (age === 0) items.push({ d, kind: 'due today', days: 0 });
+      } else if (d.type === 'quote' && ['draft', 'sent'].includes(d.status) && age >= -3) {
+        items.push({ d, kind: age >= 0 ? 'quote expired' : 'quote expiring', days: age });
+      }
+    });
+    items.sort((a, b) => b.days - a.days);
+    const box = $('#reminders');
+    if (!items.length) { box.innerHTML = ''; return; }
+    box.innerHTML = `<div class="card-title" style="margin:0 2px 6px">🔔 Follow-ups</div>` + items.slice(0, 5).map(({ d, kind, days }) => {
+      const client = d.clientSnapshot?.name || 'No client';
+      const label = kind === 'overdue' ? `${days} day(s) overdue` : kind === 'due today' ? 'Due today' : kind === 'quote expired' ? `Quote expired ${days} day(s) ago` : `Quote expires in ${-days} day(s)`;
+      const msg = encodeURIComponent(`Hi ${client}, this is a reminder regarding ${d.number} (${fmt(balanceDue(d), d.currency)}). Kindly review and revert. Thank you!`);
+      return `<div class="reminder-row">
+        <div class="reminder-main"><strong>${esc(d.number)}</strong> · ${esc(client)}<br><span class="reminder-due">${esc(label)} · Balance ${fmt(balanceDue(d), d.currency)}</span></div>
+        <button class="btn btn-ghost btn-sm" data-remind-open="${esc(d.id)}">Open</button>
+        <a class="btn btn-ghost btn-sm" href="https://wa.me/?text=${msg}" target="_blank" rel="noopener">WhatsApp</a>
+      </div>`;
+    }).join('');
   }
 
   function statusBadge(status) {
@@ -72,29 +122,42 @@
 
   function renderDocList() {
     renderStats();
+    renderReminders();
     const docs = Store.listDocuments(currentFilter, currentSearch);
     const list = $('#doc-list');
     $('#doc-empty').hidden = docs.length !== 0;
     list.innerHTML = docs.map(d => {
       const { total } = computeTotals(d);
+      const paid = amountPaid(d);
       const client = d.clientSnapshot?.name || 'No client';
-      const icon = d.type === 'quote' ? '📝' : d.type === 'invoice' ? '🧾' : '🧾';
+      const meta = DOC_TYPES[d.type] || DOC_TYPES.quote;
+      const amountLine = paid > 0 && d.status !== 'paid' ? `${fmt(balanceDue(d), d.currency)} left` : fmt(total, d.currency);
       return `<button class="doc-card" data-id="${esc(d.id)}">
-        <span class="doc-icon ${esc(d.type)}">${icon}</span>
+        <span class="doc-icon ${esc(d.type)}">${meta.icon}</span>
         <span class="doc-main">
-          <span class="doc-top"><span class="doc-number-sm">${esc(d.number)} · ${fmtDate(d.issueDate)}</span><span class="doc-total">${fmt(total, d.currency)}</span></span>
+          <span class="doc-top"><span class="doc-number-sm">${esc(d.number)} · ${fmtDate(d.issueDate)}</span><span class="doc-total">${amountLine}</span></span>
           <span class="doc-client">${esc(client)}</span>
-          <span class="doc-meta">${statusBadge(d.status)}<span>${esc((d.items || []).length)} item(s)</span></span>
+          <span class="doc-meta">${statusBadge(d.status)}<span>${esc((d.items || []).length)} item(s)</span>${(d.images || []).length ? `<span>📷 ${d.images.length}</span>` : ''}</span>
         </span>
       </button>`;
     }).join('');
   }
 
+  function renderFilterChips() {
+    $('#doc-filter').innerHTML = ['all', ...Object.keys(DOC_TYPES)].map(t =>
+      `<button class="seg-btn ${t === currentFilter ? 'seg-active' : ''}" data-filter="${t}">${t === 'all' ? 'All' : DOC_TYPES[t].plural}</button>`
+    ).join('');
+  }
+
   $('#doc-filter').addEventListener('click', e => {
     const btn = e.target.closest('.seg-btn'); if (!btn) return;
     currentFilter = btn.dataset.filter;
-    $$('#doc-filter .seg-btn').forEach(b => b.classList.toggle('seg-active', b === btn));
+    renderFilterChips();
     renderDocList();
+  });
+  $('#reminders').addEventListener('click', e => {
+    const btn = e.target.closest('[data-remind-open]'); if (!btn) return;
+    openEditor(btn.dataset.remindOpen);
   });
   $('#doc-search').addEventListener('input', e => { currentSearch = e.target.value.trim(); renderDocList(); });
   $('#empty-create').addEventListener('click', () => openEditor(null));
@@ -132,11 +195,40 @@
     })).filter(i => i.name);
   }
 
+  let currentImages = [];
+
+  function renderImagePreviews() {
+    const box = $('#image-previews');
+    $('#images-empty').hidden = currentImages.length !== 0;
+    box.querySelectorAll('.img-thumb').forEach(n => n.remove());
+    currentImages.forEach((src, i) => {
+      const div = document.createElement('div');
+      div.className = 'img-thumb';
+      div.innerHTML = `<img src="${src}" alt="Attachment ${i + 1}"><button type="button" class="img-remove" data-idx="${i}" aria-label="Remove image">✕</button>`;
+      box.appendChild(div);
+    });
+  }
+
+  $('#f-images').addEventListener('change', e => {
+    const files = [...e.target.files].slice(0, 6 - currentImages.length);
+    files.forEach(file => {
+      if (file.size > 2 * 1024 * 1024) { toast('Image too large (max 2 MB)'); return; }
+      readFile(file, url => { currentImages.push(url); renderImagePreviews(); });
+    });
+    e.target.value = '';
+  });
+  $('#image-previews').addEventListener('click', e => {
+    const btn = e.target.closest('.img-remove'); if (!btn) return;
+    currentImages.splice(Number(btn.dataset.idx), 1);
+    renderImagePreviews();
+  });
+
   function currentDocFromForm() {
     const clientId = $('#f-client').value;
     const client = Store.getClient(clientId);
     return {
       type: editorType,
+      images: [...currentImages],
       clientId: clientId || null,
       clientSnapshot: client ? { name: client.name, phone: client.phone, email: client.email, address: client.address, taxId: client.taxId } : null,
       issueDate: $('#f-issue').value || todayISO(),
@@ -178,12 +270,11 @@
 
   function setEditorType(type) {
     editorType = type;
-    $$('#doc-type-seg .seg-btn').forEach(b => b.classList.toggle('seg-active', b.dataset.type === type));
-    $('#due-label').textContent = type === 'quote' ? 'Valid until' : type === 'invoice' ? 'Due date' : 'Receipt date';
+    $('#f-doctype').value = type;
+    $('#due-label').textContent = DOC_TYPES[type]?.dueLabel || 'Due date';
     const existing = editingId ? Store.getDocument(editingId) : null;
     $('#doc-number').textContent = existing ? existing.number : Store.nextNumber(type);
-    const help = { quote: 'sent', invoice: 'unpaid', receipt: 'paid' };
-    if (!editingId) $('#f-status').value = help[type];
+    if (!editingId) $('#f-status').value = DOC_TYPES[type]?.defaultStatus || 'draft';
   }
 
   function openEditor(docId) {
@@ -199,6 +290,8 @@
     $('#f-terms').value = doc?.terms || '';
     $('#f-signature').checked = doc?.includeSignature ?? false;
     $('#items-rows').innerHTML = (doc?.items?.length ? doc.items : [{ qty: 1, taxRate: 0 }]).map(itemRowHTML).join('');
+    currentImages = [...(doc?.images || [])];
+    renderImagePreviews();
     refreshItemDatalist();
     refreshClientSelect(doc?.clientId || '');
     setEditorType(editorType);
@@ -207,7 +300,7 @@
     refreshTotals();
   }
 
-  $('#doc-type-seg').addEventListener('click', e => { const b = e.target.closest('.seg-btn'); if (b) { setEditorType(b.dataset.type); refreshTotals(); } });
+  $('#f-doctype').addEventListener('change', e => { setEditorType(e.target.value); refreshTotals(); });
   $('#editor-back').addEventListener('click', () => { renderDocList(); showView('view-dashboard'); });
   $('#add-item-row').addEventListener('click', () => { $('#items-rows').insertAdjacentHTML('beforeend', itemRowHTML({ qty: 1, taxRate: 0 })); refreshTotals(); });
   $('#items-rows').addEventListener('click', e => { if (e.target.closest('.item-remove')) { e.target.closest('.item-row').remove(); refreshTotals(); } });
@@ -255,6 +348,7 @@
     const d = Store.getDocument(id); if (!d) return;
     $('#da-title').textContent = `${d.number} — ${d.clientSnapshot?.name || 'No client'}`;
     $('#da-convert').style.display = d.type === 'quote' ? 'flex' : 'none';
+    $('#da-payment').style.display = ['invoice', 'proforma'].includes(d.type) ? 'flex' : 'none';
     actionsSheet.showModal();
   }
   $('#da-close').addEventListener('click', () => actionsSheet.close());
@@ -271,6 +365,38 @@
   });
   $('#da-pdf').addEventListener('click', () => { actionsSheet.close(); printDocument(actionsDocId); });
   $('#da-share').addEventListener('click', () => { actionsSheet.close(); shareDocument(actionsDocId); });
+  $('#da-duplicate').addEventListener('click', () => {
+    const copy = Store.duplicateDocument(actionsDocId);
+    actionsSheet.close();
+    if (copy) { renderDocList(); toast(`Duplicated as ${copy.number}`); openEditor(copy.id); }
+  });
+
+  const paymentModal = $('#payment-modal');
+  $('#da-payment').addEventListener('click', () => {
+    const d = Store.getDocument(actionsDocId); if (!d) return;
+    const bal = balanceDue(d);
+    $('#pm-title').textContent = `Record payment — ${d.number}`;
+    $('#pm-balance').textContent = `Balance due: ${fmt(bal, d.currency)}${amountPaid(d) ? ` (paid ${fmt(amountPaid(d), d.currency)} so far)` : ''}`;
+    $('#pm-amount').value = bal.toFixed(2);
+    $('#pm-date').value = todayISO();
+    $('#pm-note').value = '';
+    actionsSheet.close();
+    paymentModal.showModal();
+  });
+  $('#pm-cancel').addEventListener('click', () => paymentModal.close());
+  $('#payment-modal-form').addEventListener('submit', e => {
+    e.preventDefault();
+    const d = Store.getDocument(actionsDocId); if (!d) return;
+    const amount = parseFloat($('#pm-amount').value) || 0;
+    if (amount <= 0) { toast('Enter a valid amount'); return; }
+    Store.recordPayment(d.id, { amount, date: $('#pm-date').value || todayISO(), method: $('#pm-method').value, note: $('#pm-note').value.trim() });
+    const updated = Store.getDocument(d.id);
+    const bal = balanceDue(updated);
+    Store.setStatus(d.id, bal <= 0 ? 'paid' : amountPaid(updated) > 0 ? 'partial' : updated.status);
+    paymentModal.close();
+    renderDocList();
+    toast(bal <= 0 ? 'Fully paid 🎉' : `Payment saved. Balance ${fmt(bal, d.currency)}`);
+  });
 
   /* ============ PRINT / PDF ============ */
   function printDocument(id) {
@@ -278,10 +404,14 @@
     const s = Store.getSettings();
     const b = s.business;
     const { items, subtotal, discount, tax, total, discountPct } = computeTotals(d);
-    const typeLabel = d.type === 'quote' ? 'Quotation' : d.type === 'invoice' ? 'Invoice' : 'Receipt';
+    const typeLabel = DOC_TYPES[d.type]?.label || 'Document';
     const cur = d.currency;
+    const payments = d.payments || [];
+    const paid = amountPaid(d);
+    const balance = Math.max(0, total - paid);
+    const template = esc(s.template || 'classic');
 
-    $('#print-area').innerHTML = `<div class="print-doc">
+    $('#print-area').innerHTML = `<div class="print-doc t-${template}">
       <div class="pd-head">
         <div class="pd-brand">
           ${b.logo ? `<img class="pd-logo" src="${b.logo}" alt="Logo">` : ''}
@@ -303,7 +433,10 @@
         ${discountPct ? `<tr><td>Discount (${discountPct}%)</td><td class="r">− ${fmt(discount, cur)}</td></tr>` : ''}
         <tr><td>Tax</td><td class="r">${fmt(tax, cur)}</td></tr>
         <tr class="grand"><td>Total</td><td class="r">${fmt(total, cur)}</td></tr>
+        ${paid ? `<tr><td>Paid</td><td class="r">− ${fmt(paid, cur)}</td></tr><tr class="grand"><td>Balance due</td><td class="r">${fmt(balance, cur)}</td></tr>` : ''}
       </tbody></table>
+      ${payments.length ? `<div class="pd-notes"><strong>Payment history</strong><br>${payments.map(p => `${fmtDate(p.date)} — ${fmt(p.amount, cur)} via ${esc(p.method)}${p.note ? ' (' + esc(p.note) + ')' : ''}`).join('<br>')}</div>` : ''}
+      ${(d.images || []).length ? `<div class="pd-images">${d.images.map(src => `<img src="${src}" alt="Attachment">`).join('')}</div>` : ''}
       ${d.notes ? `<div class="pd-notes"><strong>Notes</strong><br>${esc(d.notes)}</div>` : ''}
       ${d.terms ? `<div class="pd-notes"><strong>Terms</strong><br>${esc(d.terms)}</div>` : ''}
       ${d.includeSignature && b.signature ? `<div class="pd-sign"><div class="pd-sign-box"><img class="pd-sign-img" src="${b.signature}" alt="Signature"><div class="pd-sign-line">For ${esc(b.name || BRAND)}</div></div></div>` : ''}
@@ -317,8 +450,8 @@
     const d = Store.getDocument(id); if (!d) return;
     const { total } = computeTotals(d);
     const s = Store.getSettings().business;
-    const typeLabel = d.type === 'quote' ? 'quotation' : d.type;
-    const text = `${typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1)} ${d.number} from ${s.name || BRAND}\nBill to: ${d.clientSnapshot?.name || '—'}\nTotal: ${fmt(total, d.currency)}\n${d.dueDate ? 'Due/valid: ' + fmtDate(d.dueDate) : ''}`;
+    const typeLabel = DOC_TYPES[d.type]?.label?.toLowerCase() || 'document';
+    const text = `${typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1)} ${d.number} from ${s.name || BRAND}\nBill to: ${d.clientSnapshot?.name || '—'}\nTotal: ${fmt(total, d.currency)}${amountPaid(d) ? `\nBalance due: ${fmt(balanceDue(d), d.currency)}` : ''}\n${d.dueDate ? 'Due/valid: ' + fmtDate(d.dueDate) : ''}`;
     if (navigator.share) {
       navigator.share({ title: `${typeLabel} ${d.number}`, text }).catch(() => {});
     } else {
@@ -391,7 +524,9 @@
     $('#s-name').value = b.name; $('#s-email').value = b.email; $('#s-phone').value = b.phone;
     $('#s-address').value = b.address; $('#s-taxid').value = b.taxId; $('#s-website').value = b.website;
     $('#s-currency').value = s.currency;
+    $('#s-template').value = s.template || 'classic';
     $('#s-qprefix').value = s.prefixes.quote; $('#s-invprefix').value = s.prefixes.invoice; $('#s-rprefix').value = s.prefixes.receipt;
+    $('#s-proprefix').value = s.prefixes.proforma; $('#s-poprefix').value = s.prefixes.purchase_order; $('#s-dnprefix').value = s.prefixes.delivery_note;
     if (b.logo) { $('#logo-preview').src = b.logo; $('#logo-preview').hidden = false; $('#logo-placeholder').hidden = true; } else { $('#logo-preview').hidden = true; $('#logo-placeholder').hidden = false; }
     if (b.signature) { $('#signature-preview').src = b.signature; $('#signature-preview').hidden = false; } else { $('#signature-preview').hidden = true; }
   }
@@ -404,7 +539,7 @@
   $('#settings-form').addEventListener('submit', e => {
     e.preventDefault();
     Store.updateBusiness({ name: $('#s-name').value.trim(), email: $('#s-email').value.trim(), phone: $('#s-phone').value.trim(), address: $('#s-address').value.trim(), taxId: $('#s-taxid').value.trim(), website: $('#s-website').value.trim() });
-    Store.updateSettings({ currency: $('#s-currency').value, prefixes: { quote: $('#s-qprefix').value.trim() || 'QUO', invoice: $('#s-invprefix').value.trim() || 'INV', receipt: $('#s-rprefix').value.trim() || 'RCT' } });
+    Store.updateSettings({ currency: $('#s-currency').value, template: $('#s-template').value, prefixes: { quote: $('#s-qprefix').value.trim() || 'QUO', invoice: $('#s-invprefix').value.trim() || 'INV', receipt: $('#s-rprefix').value.trim() || 'RCT', proforma: $('#s-proprefix').value.trim() || 'PRO', purchase_order: $('#s-poprefix').value.trim() || 'PO', delivery_note: $('#s-dnprefix').value.trim() || 'DN' } });
     toast('Business profile saved');
   });
 
@@ -429,6 +564,8 @@
   /* ============ BOOT ============ */
   function boot() {
     fillCurrencySelects();
+    $('#f-doctype').innerHTML = Object.entries(DOC_TYPES).map(([k, t]) => `<option value="${k}">${esc(t.label)}</option>`).join('');
+    renderFilterChips();
     loadSettingsForm();
     renderClients();
     renderItems();
