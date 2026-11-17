@@ -33,7 +33,7 @@
   const toast = msg => { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2600); };
 
   /* ============ NAVIGATION ============ */
-  const VIEW_IDS = ['view-dashboard', 'view-editor', 'view-clients', 'view-items', 'view-settings'];
+  const VIEW_IDS = ['view-dashboard', 'view-editor', 'view-clients', 'view-items', 'view-settings', 'view-admin'];
   function showView(id) {
     VIEW_IDS.forEach(v => $('#' + v).classList.toggle('view-active', v === id));
     $$('.nav-btn').forEach(b => b.classList.toggle('nav-active', b.dataset.view === id));
@@ -572,5 +572,6 @@
     renderDocList();
     showView('view-dashboard');
   }
+  window.QC = { showView, toast, Store };
   boot();
 })();
